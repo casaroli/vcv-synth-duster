@@ -2,15 +2,9 @@
 
 > Did you ever want to try the full potential of the Befaco Synth Duster but never had the resources to acquire one, or the time to wait for Behringer to make a cheap clone? **Now you have the unique opportunity to experience the full potential of the Befaco Synth Duster for FREE in VCV Rack 2.**
 
-![hero shot of the Synth Duster sitting smugly between two oscillators](docs/hero.png)
-<!-- TODO: replace with a real screenshot. 8HP, transparent panel,
-     bristles vertical, casually parked in a busy patch. -->
+![Synth Duster being dragged across a busy rack — bristles catching on knobs, jacks, and cables in real time](images/duster_demo.gif)
 
 A physically-simulated 8HP brush for VCV Rack 2. Zero CV. Zero audio. Zero practical purpose. **Maximum vibes.**
-
-## Live demo
-
-![Synth Duster being dragged across a busy rack — bristles catching on knobs, jacks, and cables in real time](images/duster_demo.gif)
 
 ## Features
 
