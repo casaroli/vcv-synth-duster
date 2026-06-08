@@ -1,0 +1,10 @@
+.*
+!.git*
+
+*.a
+*.so
+*.dylib
+*.dll
+/build
+/dep
+/dist

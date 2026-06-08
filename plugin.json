@@ -1,0 +1,23 @@
+{
+  "slug": "Duster",
+  "name": "Duster",
+  "version": "2.0.0",
+  "license": "GPL-3.0-or-later",
+  "brand": "Befaco",
+  "author": "Marco Casaroli",
+  "authorEmail": "marco.casaroli@gmail.com",
+  "authorUrl": "",
+  "pluginUrl": "",
+  "manualUrl": "",
+  "sourceUrl": "",
+  "donateUrl": "",
+  "changelogUrl": "",
+  "modules": [
+    {
+      "slug": "Duster",
+      "name": "Duster",
+      "description": "An 8HP brush sitting in your rack. Purely decorative.",
+      "tags": ["Blank"]
+    }
+  ]
+}
