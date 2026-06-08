@@ -4,14 +4,20 @@
 #include <vector>
 #include <settings.hpp>
 
-// Temporary visualisation of cable obstacles while we figure out why the
-// bristles aren't reacting. Set to 0 to disable.
-#define DUSTER_DEBUG_OBSTACLES 1
+// Set to 1 to overlay obstacle rects (cyan), cable segments (green tubes),
+// and a red segment-count bar — useful when debugging collision geometry.
+#define DUSTER_DEBUG_OBSTACLES 0
 
 
 struct Duster : Module {
+	enum ParamId {
+		MODE_PARAM,
+		NUM_PARAMS
+	};
+
 	Duster() {
-		config(0, 0, 0, 0);
+		config(NUM_PARAMS, 0, 0, 0);
+		configSwitch(MODE_PARAM, 0.f, 1.f, 0.f, "View", {"Side", "Top"});
 	}
 };
 
@@ -41,6 +47,15 @@ struct SegmentObstacle {
 };
 
 
+// A point on the handle's perimeter in top-down mode: anchor position plus
+// outward unit normal. The anchor is inset slightly inward so the bristle
+// base stays hidden behind the handle when undisplaced.
+struct PerimPoint {
+	float x, y;
+	float nx, ny;
+};
+
+
 // Procedural bristle layer: draws each bristle as an independent line with
 // its own (displacement, velocity) state and reacts to nearby ParamWidgets,
 // PortWidgets, and cables as physical obstacles.
@@ -62,11 +77,64 @@ struct BristleWidget : widget::Widget {
 	static constexpr float kCableSagBaseline = 150.0f;
 	static constexpr float kCableSagPerPx = 1.0f;
 
+	// Top mode: bristles are distributed around the *perimeter* of the
+	// handle (1.6, 4)-(39.04, 108). At rest each one's projection is a
+	// point inset inside the wood — invisible behind the panel. Any push
+	// stretches the bristle out along the edge's outward normal, with a
+	// small tangential sway for the lateral component of the push.
+	static constexpr float kTopHandleX0 = 5.0f;
+	static constexpr float kTopHandleX1 = 35.64f;
+	static constexpr float kTopHandleY0 = 4.0f;
+	static constexpr float kTopHandleY1 = 108.0f;
+	static constexpr float kTopAnchorInset = 1.5f;   // mm inward from edge
+	static constexpr float kTopPeekScale = 12.0f;    // mm of peek per mm of disp
+	static constexpr float kTopPeekLatScale = 0.6f;  // tangential sway scale
+	// Softer spring in top mode so the rare contacts on the top/side edges
+	// still accumulate enough displacement to read as stretched bristles.
+	static constexpr float kTopStiffness = 0.06f;
+
+	static PerimPoint computePerimeter(int idx, int total) {
+		const float topL = kTopHandleX1 - kTopHandleX0;
+		const float rightL = kTopHandleY1 - kTopHandleY0;
+		const float bottomL = topL;
+		const float leftL = rightL;
+		const float perim = topL + rightL + bottomL + leftL;
+		float s = ((float) idx / (float) total) * perim;
+
+		PerimPoint p;
+		if (s < topL) {
+			p.x = kTopHandleX0 + s;
+			p.y = kTopHandleY0;
+			p.nx = 0.f; p.ny = -1.f;
+		}
+		else if (s < topL + rightL) {
+			p.x = kTopHandleX1;
+			p.y = kTopHandleY0 + (s - topL);
+			p.nx = 1.f; p.ny = 0.f;
+		}
+		else if (s < topL + rightL + bottomL) {
+			p.x = kTopHandleX1 - (s - topL - rightL);
+			p.y = kTopHandleY1;
+			p.nx = 0.f; p.ny = 1.f;
+		}
+		else {
+			p.x = kTopHandleX0;
+			p.y = kTopHandleY1 - (s - topL - rightL - bottomL);
+			p.nx = -1.f; p.ny = 0.f;
+		}
+		// Inset the anchor inward so the base sits inside the handle.
+		p.x -= p.nx * kTopAnchorInset;
+		p.y -= p.ny * kTopAnchorInset;
+		return p;
+	}
+
 	Bristle bristles[kNumBristles];
 
 	// Parent DusterWidget; we read its box.pos as the brush position and skip
 	// it when collecting obstacles.
 	widget::Widget* brush = nullptr;
+	// Source of the view-mode param (0 = side, 1 = top).
+	Duster* dusterModule = nullptr;
 	math::Vec lastBrushPos;
 	bool firstStep = true;
 
@@ -75,6 +143,15 @@ struct BristleWidget : widget::Widget {
 
 	void setBrush(widget::Widget* b) {
 		brush = b;
+	}
+
+	void setDusterModule(Duster* d) {
+		dusterModule = d;
+	}
+
+	bool isTopMode() const {
+		return dusterModule
+			&& dusterModule->params[Duster::MODE_PARAM].getValue() > 0.5f;
 	}
 
 	void collectObstacles() {
@@ -152,28 +229,46 @@ struct BristleWidget : widget::Widget {
 		float velMmX = brushVel.x / mm;
 		float velMmY = brushVel.y / mm;
 
+		bool topMode = isTopMode();
+
 		for (int i = 0; i < kNumBristles; ++i) {
 			const BristleDef& d = kBristles[i];
 			Bristle& b = bristles[i];
 
-			// Drag target: tips lag opposite to handle motion.
-			float tX = -velMmX * kDragGainX;
-			float tY = -velMmY * kDragGainY;
+			// Drag target: tips lag opposite to handle motion. In top mode
+			// there's no surface friction — bristles only react to obstacle
+			// pushes, so the drag target is zero.
+			float tX = topMode ? 0.f : -velMmX * kDragGainX;
+			float tY = topMode ? 0.f : -velMmY * kDragGainY;
 
-			// Damped spring toward target.
-			float fX = (tX - b.dispX) * kStiffness - b.velX * kDamping;
-			float fY = (tY - b.dispY) * kStiffness - b.velY * kDamping;
+			// Damped spring toward target. Softer in top mode (see comment
+			// near kTopStiffness) so weak contacts visibly stretch bristles.
+			float stiff = topMode ? kTopStiffness : kStiffness;
+			float fX = (tX - b.dispX) * stiff - b.velX * kDamping;
+			float fY = (tY - b.dispY) * stiff - b.velY * kDamping;
 			b.velX += fX;
 			b.velY += fY;
 			b.dispX += b.velX;
 			b.dispY += b.velY;
 
 			// Anchor (fixed) and tip (moving) in rack pixels — same space as
-			// the obstacle rects and segments.
-			float anchorPxX = brushOrigin.x + d.anchorX * mm;
-			float anchorPxY = brushOrigin.y + d.anchorY * mm;
-			float tipPxX = brushOrigin.x + (d.restX + b.dispX) * mm;
-			float tipPxY = brushOrigin.y + (d.restY + b.dispY) * mm;
+			// the obstacle rects and segments. In top mode the bristle
+			// projects to a single dot, so anchor and rest tip share an
+			// (x, y) and the displacement is just the deflection.
+			float anchorPxX, anchorPxY, tipPxX, tipPxY;
+			if (topMode) {
+				PerimPoint pp = computePerimeter(i, kNumBristles);
+				anchorPxX = brushOrigin.x + pp.x * mm;
+				anchorPxY = brushOrigin.y + pp.y * mm;
+				tipPxX = brushOrigin.x + (pp.x + b.dispX) * mm;
+				tipPxY = brushOrigin.y + (pp.y + b.dispY) * mm;
+			}
+			else {
+				anchorPxX = brushOrigin.x + d.anchorX * mm;
+				anchorPxY = brushOrigin.y + d.anchorY * mm;
+				tipPxX = brushOrigin.x + (d.restX + b.dispX) * mm;
+				tipPxY = brushOrigin.y + (d.restY + b.dispY) * mm;
+			}
 
 			// Sample multiple points along the bristle body so small
 			// obstacles touching it anywhere — not just at the tip — push
@@ -315,13 +410,37 @@ struct BristleWidget : widget::Widget {
 		}
 #endif
 
+		bool topMode = isTopMode();
+
 		for (int i = 0; i < kNumBristles; ++i) {
 			const BristleDef& d = kBristles[i];
 			const Bristle& b = bristles[i];
-			float ax = d.anchorX * mm;
-			float ay = d.anchorY * mm;
-			float tx = (d.restX + b.dispX) * mm;
-			float ty = (d.restY + b.dispY) * mm;
+
+			float ax, ay, tx, ty;
+			if (topMode) {
+				// Perimeter peek: anchor inside the wood, tip extends out
+				// along the edge's outward normal by |disp| * scale, plus a
+				// tangential sway from the displacement's lateral component.
+				PerimPoint pp = computePerimeter(i, kNumBristles);
+				float dispMag = std::sqrt(b.dispX * b.dispX + b.dispY * b.dispY);
+				float tanX = -pp.ny;
+				float tanY = pp.nx;
+				float sway = b.dispX * tanX + b.dispY * tanY;
+
+				ax = pp.x * mm;
+				ay = pp.y * mm;
+				tx = (pp.x + pp.nx * dispMag * kTopPeekScale
+					+ tanX * sway * kTopPeekLatScale) * mm;
+				ty = (pp.y + pp.ny * dispMag * kTopPeekScale
+					+ tanY * sway * kTopPeekLatScale) * mm;
+			}
+			else {
+				ax = d.anchorX * mm;
+				ay = d.anchorY * mm;
+				tx = (d.restX + b.dispX) * mm;
+				ty = (d.restY + b.dispY) * mm;
+			}
+
 			nvgBeginPath(args.vg);
 			nvgMoveTo(args.vg, ax, ay);
 			nvgLineTo(args.vg, tx, ty);
@@ -336,20 +455,51 @@ struct BristleWidget : widget::Widget {
 
 struct DusterWidget : ModuleWidget {
 	BristleWidget* bristleLayer = nullptr;
+	app::SvgPanel* panel = nullptr;
+	std::shared_ptr<window::Svg> sideSvg;
+	std::shared_ptr<window::Svg> topSvg;
+	int currentMode = -1;
 	bool didDrag = false;
 
 	DusterWidget(Duster* module) {
 		setModule(module);
 
-		// Order matters: bristle layer added first → drawn behind the panel,
-		// so the handle's dark base strip covers the bristle anchors.
+		sideSvg = window::Svg::load(
+			asset::plugin(pluginInstance, "res/Duster_handle.svg"));
+		topSvg = window::Svg::load(
+			asset::plugin(pluginInstance, "res/Duster_handle_top.svg"));
+		panel = createPanel<app::SvgPanel>(
+			asset::plugin(pluginInstance, "res/Duster_handle.svg"));
+		setPanel(panel);
+
 		bristleLayer = new BristleWidget();
 		bristleLayer->box.size = math::Vec(mm2px(40.64f), mm2px(128.5f));
 		bristleLayer->setBrush(this);
+		bristleLayer->setDusterModule(module);
 		addChild(bristleLayer);
 
-		setPanel(createPanel<app::SvgPanel>(
-			asset::plugin(pluginInstance, "res/Duster_handle.svg")));
+		// Force the bristle layer to the front of the children list — i.e.,
+		// drawn FIRST (back-most). setPanel inserts the panel near the
+		// front, so without this the bristles end up rendering on top of
+		// the wood instead of underneath it.
+		children.remove(bristleLayer);
+		children.push_front(bristleLayer);
+
+		// View-mode switch: small slide on the right side of the handle,
+		// at a y that's on the wood in both panels.
+		addParam(createParamCentered<CKSS>(
+			mm2px(math::Vec(33.f, 95.f)), module, Duster::MODE_PARAM));
+	}
+
+	void step() override {
+		ModuleWidget::step();
+		if (module) {
+			int newMode = (int) module->params[Duster::MODE_PARAM].getValue();
+			if (newMode != currentMode) {
+				panel->setBackground(newMode == 1 ? topSvg : sideSvg);
+				currentMode = newMode;
+			}
+		}
 	}
 
 	// Free movement: ignore the rack's snap-to-grid + push-others for left

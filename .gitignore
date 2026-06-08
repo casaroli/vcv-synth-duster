@@ -8,3 +8,6 @@
 /build
 /dep
 /dist
+
+# Source screen recordings — only the rendered GIFs go in the repo.
+images/*.mov
