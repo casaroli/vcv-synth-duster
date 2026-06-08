@@ -46,6 +46,33 @@ struct DusterWidget : ModuleWidget {
 		lastPos = box.pos;
 	}
 
+	// Free movement: skip ModuleWidget's rack-aware drag handlers so the
+	// Duster doesn't snap to the rail grid and doesn't shove other modules.
+	// Right/middle buttons still fall through for context menu, etc.
+
+	void onDragStart(const DragStartEvent& e) override {
+		if (e.button != GLFW_MOUSE_BUTTON_LEFT) {
+			ModuleWidget::onDragStart(e);
+		}
+	}
+
+	void onDragEnd(const DragEndEvent& e) override {
+		if (e.button != GLFW_MOUSE_BUTTON_LEFT) {
+			ModuleWidget::onDragEnd(e);
+		}
+	}
+
+	void onDragMove(const DragMoveEvent& e) override {
+		if (e.button != GLFW_MOUSE_BUTTON_LEFT) {
+			ModuleWidget::onDragMove(e);
+			return;
+		}
+		float zoom = getAbsoluteZoom();
+		if (zoom > 0.f) {
+			box.pos = box.pos.plus(e.mouseDelta.div(zoom));
+		}
+	}
+
 	void step() override {
 		math::Vec delta = box.pos.minus(lastPos);
 		lastPos = box.pos;
