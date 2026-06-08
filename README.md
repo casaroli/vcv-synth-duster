@@ -1,4 +1,4 @@
-# Synth Duster
+# Synth Duster VCV Rack Plugin
 
 > Did you ever want to try the full potential of the Befaco Synth Duster but never had the resources to acquire one, or the time to wait for Behringer to make a cheap clone? **Now you have the unique opportunity to experience the full potential of the Befaco Synth Duster for FREE in VCV Rack 2.**
 
@@ -76,6 +76,22 @@ Tweak the feel? Constants at the top of `BristleWidget` in `src/Duster.cpp`:
 | `kCableRadiusPx` | How thick we consider a cable to be for collision. |
 | `kCableSagFactor` | How much each cable sags in the obstacle approximation. |
 | `kMaxDispMm` | Clamp on bristle displacement so they can't fly off into orbit. |
+
+## Are you ready to buy the real thing?
+
+The pixel brush in your rack is, in the end, made of pixels. The real one is made of actual bristles attached to actual wood, and it actually cleans your actual modules. If your wrist is sore from dragging fake bristles around with a mouse, treat yourself:
+
+- **Official:** [Befaco — Synth Duster](https://www.befaco.org/synth-duster-2/)
+
+Or pick one up from your favorite Eurorack dealer:
+
+- [Perfect Circuit](https://www.perfectcircuit.com/befaco-synth-duster.html) (US)
+- [Detroit Modular](https://www.detroitmodular.com/products/befaco-synth-duster) (US)
+- [Signal Sounds](https://www.signalsounds.com/befaco-synth-duster-cleaning-brush) (UK)
+- [Schneidersladen](https://schneidersladen.de/en/befaco-synth-duster) (DE)
+- [Thomann](https://www.thomann.de/de/befaco_synth_duster.htm) (DE)
+
+We get nothing if you click these. We just like our friends at Befaco.
 
 ## Disclaimer
 
